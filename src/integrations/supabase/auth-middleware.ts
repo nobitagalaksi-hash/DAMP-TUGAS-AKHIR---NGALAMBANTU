@@ -4,17 +4,30 @@ import { getRequest } from "@tanstack/react-start/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
+const normalize = (value?: string) => value?.trim();
+const isPlaceholderValue = (value?: string) => {
+  if (!value) return true;
+  const trimmed = value.trim();
+  return [
+    trimmed === "",
+    trimmed.includes("your-"),
+    trimmed.includes("paste"),
+    trimmed.includes("replace"),
+    trimmed.includes("example"),
+    trimmed.includes("placeholder"),
+    trimmed.includes("<"),
+    trimmed.includes(">"),
+  ].some(Boolean);
+};
+
 export const requireSupabaseAuth = createMiddleware({ type: "function" }).server(
   async ({ next }) => {
-    const SUPABASE_URL = process.env.SUPABASE_URL;
-    const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
+    const SUPABASE_URL = normalize(process.env.SUPABASE_URL);
+    const SUPABASE_PUBLISHABLE_KEY = normalize(process.env.SUPABASE_PUBLISHABLE_KEY);
 
-    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-      const missing = [
-        ...(!SUPABASE_URL ? ["SUPABASE_URL"] : []),
-        ...(!SUPABASE_PUBLISHABLE_KEY ? ["SUPABASE_PUBLISHABLE_KEY"] : []),
-      ];
-      const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Connect Supabase in Lovable Cloud.`;
+    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY || isPlaceholderValue(SUPABASE_URL) || isPlaceholderValue(SUPABASE_PUBLISHABLE_KEY)) {
+      const message =
+        "Supabase belum dikonfigurasi dengan benar. Isi URL project dan anon key di file .env sebelum membuka route yang butuh autentikasi.";
       console.error(`[Supabase] ${message}`);
       throw new Error(message);
     }

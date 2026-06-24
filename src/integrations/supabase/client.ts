@@ -2,22 +2,97 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
+const normalize = (value?: string) => value?.trim();
+const isPlaceholderValue = (value?: string) => {
+  if (!value) return true;
+  const trimmed = value.trim();
+  return [
+    trimmed === "",
+    trimmed.includes("your-"),
+    trimmed.includes("paste"),
+    trimmed.includes("replace"),
+    trimmed.includes("example"),
+    trimmed.includes("placeholder"),
+    trimmed.includes("<"),
+    trimmed.includes(">"),
+  ].some(Boolean);
+};
+
+let supabaseConfigErrorMessage: string | null = null;
+
+function createMissingSupabaseClient(message: string) {
+  const makeResult = <T>(data: T) => ({ data, error: new Error(message) });
+  const authHandler = new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        if (prop === "then") return undefined;
+        switch (prop) {
+          case "getSession":
+            return async () => makeResult({ session: null });
+          case "getUser":
+            return async () => makeResult({ user: null });
+          case "getClaims":
+            return async () => makeResult({ claims: null });
+          case "signOut":
+            return async () => ({ error: new Error(message) });
+          case "signInWithPassword":
+            return async () => ({ data: { session: null, user: null }, error: new Error(message) });
+          case "signUp":
+            return async () => ({ data: { session: null, user: null }, error: new Error(message) });
+          case "updateUser":
+            return async () => ({ data: { user: null }, error: new Error(message) });
+          case "setSession":
+            return async () => ({ data: { session: null }, error: new Error(message) });
+          case "onAuthStateChange":
+            return () => ({ data: { subscription: { unsubscribe() {} } } });
+          default:
+            return async () => ({ data: null, error: new Error(message) });
+        }
+      },
+    },
+  );
+
+  const dbHandler = new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        if (prop === "then") return undefined;
+        return () => dbHandler;
+      },
+    },
+  );
+
+  return new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        if (prop === "then") return undefined;
+        if (prop === "auth") return authHandler;
+        if (prop === "from") return () => dbHandler;
+        return async () => ({ data: null, error: new Error(message) });
+      },
+    },
+  );
+}
+
 function createSupabaseClient() {
   // Use import.meta.env for client-side (Vite build-time replacement)
   // Fall back to process.env for SSR (server-side rendering)
-  const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
-  const SUPABASE_PUBLISHABLE_KEY =
-    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+  const rawUrl = import.meta.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  const rawKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY;
+  const SUPABASE_URL = normalize(rawUrl);
+  const SUPABASE_PUBLISHABLE_KEY = normalize(rawKey);
 
-  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-    const missing = [
-      ...(!SUPABASE_URL ? ["SUPABASE_URL"] : []),
-      ...(!SUPABASE_PUBLISHABLE_KEY ? ["SUPABASE_PUBLISHABLE_KEY"] : []),
-    ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(", ")}. Connect Supabase in Lovable Cloud.`;
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY || isPlaceholderValue(SUPABASE_URL) || isPlaceholderValue(SUPABASE_PUBLISHABLE_KEY)) {
+    const message =
+      "Supabase belum dikonfigurasi dengan benar. Salin URL project dan anon key dari Supabase Dashboard > Project Settings > API, lalu isi file .env.";
+    supabaseConfigErrorMessage = message;
     console.error(`[Supabase] ${message}`);
-    throw new Error(message);
+    return createMissingSupabaseClient(message) as ReturnType<typeof createSupabaseClient>;
   }
+
+  supabaseConfigErrorMessage = null;
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     auth: {
@@ -29,6 +104,10 @@ function createSupabaseClient() {
 }
 
 let _supabase: ReturnType<typeof createSupabaseClient> | undefined;
+
+export function getSupabaseConfigError() {
+  return supabaseConfigErrorMessage;
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";

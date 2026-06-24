@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Mail, Lock, Eye, EyeOff, Phone, ChevronLeft } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { getSupabaseConfigError, supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import lionLogo from "@/assets/lion-logo-orange.png";
 
@@ -28,6 +28,7 @@ function MasukPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const supabaseConfigError = getSupabaseConfigError();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,38 +47,46 @@ function MasukPage() {
         setLoading(false);
         return;
       }
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-      if (signUpError) {
-        setError(signUpError.message);
-      } else if (data.session) {
-        window.location.href = "/beranda";
-        return;
-      } else {
+      try {
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+        if (signUpError) {
+          setError(signUpError.message);
+        } else if (data.session) {
+          window.location.href = "/beranda";
+          return;
+        } else {
+          const { error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          });
+          if (signInError) {
+            setError(
+              "Akun sudah dibuat, tetapi Supabase masih memaksa konfirmasi email. Matikan Email Confirmations di dashboard Supabase agar langsung login.",
+            );
+          } else {
+            window.location.href = "/beranda";
+            return;
+          }
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Gagal terhubung ke Supabase.");
+      }
+    } else {
+      try {
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (signInError) {
-          setError(
-            "Akun sudah dibuat, tetapi Supabase masih memaksa konfirmasi email. Matikan Email Confirmations di dashboard Supabase agar langsung login.",
-          );
-        } else {
+        if (signInError) setError(signInError.message);
+        else {
           window.location.href = "/beranda";
           return;
         }
-      }
-    } else {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (signInError) setError(signInError.message);
-      else {
-        window.location.href = "/beranda";
-        return;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Gagal terhubung ke Supabase.");
       }
     }
     setLoading(false);
@@ -85,13 +94,17 @@ function MasukPage() {
 
   const handleGoogle = async () => {
     setError("");
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin + "/beranda",
-    });
-    if (result.error) setError(result.error.message || "Gagal masuk dengan Google");
-    if (result.redirected) return;
-    if (!result.error) {
-      window.location.href = "/beranda";
+    try {
+      const result = await lovable.auth.signInWithOAuth("google", {
+        redirect_uri: window.location.origin + "/beranda",
+      });
+      if (result.error) setError(result.error.message || "Gagal masuk dengan Google");
+      if (result.redirected) return;
+      if (!result.error) {
+        window.location.href = "/beranda";
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal masuk dengan Google.");
     }
   };
 
@@ -129,6 +142,11 @@ function MasukPage() {
           <p className="mt-3 text-navy/80 text-center text-sm">
             Masuk dulu yuk! Sebelum menunjukkan aksi sosial Anda di Malang.
           </p>
+          {supabaseConfigError && (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {supabaseConfigError}
+            </div>
+          )}
 
           {/* Tab Switcher */}
           <div className="mt-8 flex bg-white/90 rounded-full p-1.5">
